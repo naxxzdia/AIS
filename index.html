@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AIS Customer Dashboard</title>
+    <script src="https://www.gstatic.com/charts/loader.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      body { font-family: 'Prompt', sans-serif; background: #f7f7fd; margin:0; }
+      .dashboard-container { max-width: 1200px; margin: 24px auto; background: #fff; border-radius: 16px; padding: 32px 32px 24px 32px; box-shadow: 0 4px 32px #0002;}
+      .dashboard-header { font-size: 2.2em; font-weight: bold; margin-bottom: 12px; color: #5a3ec8;}
+      .dashboard-filters { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;}
+      .dashboard-filters select { font-size: 1.1em; padding: 6px 12px; border-radius: 8px; border: 1px solid #bbb;}
+      .dashboard-cards { display: flex; gap: 16px; margin-bottom: 26px;}
+      .dashboard-card { flex: 1 1 0; background: #f5f6ff; padding: 18px 10px; border-radius: 14px; text-align: center; box-shadow: 0 1px 8px #0001;}
+      .dashboard-card-title { font-size: 1em; color: #6d6d8d;}
+      .dashboard-card-value { font-size: 2em; font-weight: bold; color: #5a3ec8; margin-top: 8px;}
+      .dashboard-content { display: flex; gap: 20px; flex-wrap: wrap;}
+      .dashboard-chart, .dashboard-table { background: #fff; border-radius: 14px; box-shadow: 0 1px 8px #0001; padding: 16px; flex: 1 1 320px; min-width: 320px;}
+      .dashboard-table table { width: 100%; border-collapse: collapse;}
+      .dashboard-table th, .dashboard-table td { border-bottom: 1px solid #eee; padding: 8px;}
+      .dashboard-table th { background: #f4f4f8;}
+      @media (max-width: 900px){
+        .dashboard-cards, .dashboard-content { flex-direction: column; }
+      }
+    </style>
+    <script>
+      let globalData = [];
+      let headers = [];
+      let filters = {
+        'Province': 'All',
+        'Age': 'All',
+        'Plan Type': 'All'
+      };
+
+      function loadData() {
+        google.script.run.withSuccessHandler(initDashboard).getDashboardData();
+      }
+
+      function safeGetIndex(headerName) {
+        // ใช้สำหรับแปลงชื่อหัวตารางไทย-อังกฤษ
+        const alias = {
+          'จังหวัด': 'Province',
+          'ช่วงอายุ': 'Age',
+          'Plan Type': 'Plan Type',
+          'ประเภทแพ็กเกจ': 'Plan Type',
+          'ความพึงพอใจ': 'Satisfaction_Clean',
+          'Satisfaction_Clean': 'Satisfaction_Clean',
+          'Problems': 'Problems'
+        };
+        let idx = headers.indexOf(headerName);
+        if (idx < 0 && alias[headerName]) idx = headers.indexOf(alias[headerName]);
+        return idx;
+      }
+
+      function initDashboard(data) {
+        globalData = data;
+        headers = data[0];
+
+        // options (ดึงจากข้อมูลจริง)
+        function getUnique(idx) {
+          let set = new Set();
+          for(let i=1; i<data.length; i++){
+            let v = data[i][idx];
+            if (v && v.trim() !== "" && v !== "-") set.add(v.trim());
+          }
+          return Array.from(set).sort();
+        }
+
+        let provinceIdx = safeGetIndex('Province');
+        let ageIdx = safeGetIndex('Age');
+        let planTypeIdx = safeGetIndex('Plan Type');
+
+        // Province
+        let provinceSel = document.getElementById('province');
+        provinceSel.innerHTML = '';
+        provinceSel.appendChild(new Option('All', 'All'));
+        getUnique(provinceIdx).forEach(v => provinceSel.appendChild(new Option(v, v)));
+        provinceSel.onchange = updateFilters;
+
+        // Age
+        let ageSel = document.getElementById('age');
+        ageSel.innerHTML = '';
+        ageSel.appendChild(new Option('All', 'All'));
+        getUnique(ageIdx).forEach(v => ageSel.appendChild(new Option(v, v)));
+        ageSel.onchange = updateFilters;
+
+        // Plan Type
+        let planSel = document.getElementById('plan');
+        planSel.innerHTML = '';
+        planSel.appendChild(new Option('All', 'All'));
+        getUnique(planTypeIdx).forEach(v => planSel.appendChild(new Option(v, v)));
+        planSel.onchange = updateFilters;
+
+        updateDashboard();
+      }
+
+      function updateFilters() {
+        filters['Province'] = document.getElementById('province').value;
+        filters['Age'] = document.getElementById('age').value;
+        filters['Plan Type'] = document.getElementById('plan').value;
+        updateDashboard();
+      }
+
+      function filterData() {
+        let data = [];
+        let provinceIdx = safeGetIndex('Province');
+        let ageIdx = safeGetIndex('Age');
+        let planTypeIdx = safeGetIndex('Plan Type');
+
+        for(let i=1; i<globalData.length; i++){
+          let ok = true;
+          if(filters['Province'] !== 'All' && globalData[i][provinceIdx] !== filters['Province']) ok = false;
+          if(filters['Age'] !== 'All' && globalData[i][ageIdx] !== filters['Age']) ok = false;
+          if(filters['Plan Type'] !== 'All' && globalData[i][planTypeIdx] !== filters['Plan Type']) ok = false;
+          if(ok) data.push(globalData[i]);
+        }
+        return data;
+      }
+
+      function updateDashboard() {
+        let filtered = filterData();
+        // Card 1: จำนวนลูกค้าทั้งหมด
+        document.getElementById('card-total').textContent = filtered.length;
+
+        // Card 2: ความพึงพอใจสูง (%)
+        let satIdx = safeGetIndex('Satisfaction_Clean');
+        let highSat = filtered.filter(r => r[satIdx] && r[satIdx].toLowerCase() === 'high');
+        document.getElementById('card-sat').textContent = filtered.length ? ((highSat.length / filtered.length) * 100).toFixed(2) + '%' : '-';
+
+        // Card 3: ไม่มีปัญหา (%)
+        let probIdx = safeGetIndex('Problems');
+        let noProb = filtered.filter(r => !r[probIdx] || r[probIdx].toLowerCase().includes('no issue'));
+        document.getElementById('card-noproblem').textContent = filtered.length ? ((noProb.length / filtered.length) * 100).toFixed(2) + '%' : '-';
+
+        // Card 4: จำนวนจังหวัด
+        let provinceIdx = safeGetIndex('Province');
+        let provinceSet = new Set(filtered.map(r => r[provinceIdx]));
+        document.getElementById('card-province').textContent = provinceSet.size;
+
+        // Chart Pie ความพึงพอใจ
+        drawPieSat(filtered);
+
+        // Chart Bar แพ็กเกจ
+        drawBarPlan(filtered);
+
+        // Chart Pie จังหวัด
+        drawPieProvince(filtered);
+
+        // Table
+        drawTable(filtered);
+      }
+
+      function drawPieSat(data) {
+        let satIdx = safeGetIndex('Satisfaction_Clean');
+        let satMap = {};
+        data.forEach(r => {
+          let val = r[satIdx] || 'ไม่ระบุ';
+          satMap[val] = (satMap[val] || 0) + 1;
+        });
+        let chartData = [['ความพึงพอใจ', 'จำนวน']];
+        for(let k in satMap) chartData.push([k, satMap[k]]);
+        google.charts.load('current', {'packages':['corechart']});
+        google.charts.setOnLoadCallback(() => {
+          let dataTable = google.visualization.arrayToDataTable(chartData);
+          let options = {pieHole: 0.5, legend: {position:'right'}, chartArea: {width:'80%',height:'80%'}};
+          let chart = new google.visualization.PieChart(document.getElementById('chart-sat'));
+          chart.draw(dataTable, options);
+        });
+      }
+
+      function drawBarPlan(data) {
+        let planIdx = safeGetIndex('Plan Type');
+        let planMap = {};
+        data.forEach(r => {
+          let val = r[planIdx] || 'ไม่ระบุ';
+          planMap[val] = (planMap[val] || 0) + 1;
+        });
+        let chartData = [['แพ็กเกจ', 'จำนวน']];
+        for(let k in planMap) chartData.push([k, planMap[k]]);
+        google.charts.load('current', {'packages':['corechart']});
+        google.charts.setOnLoadCallback(() => {
+          let dataTable = google.visualization.arrayToDataTable(chartData);
+          let options = {legend: {position:'none'}, chartArea: {width:'80%',height:'80%'}, colors:['#5a3ec8']};
+          let chart = new google.visualization.ColumnChart(document.getElementById('chart-plan'));
+          chart.draw(dataTable, options);
+        });
+      }
+
+      function drawPieProvince(data) {
+        let provinceIdx = safeGetIndex('Province');
+        let provinceMap = {};
+        data.forEach(r => {
+          let val = r[provinceIdx] || 'ไม่ระบุ';
+          provinceMap[val] = (provinceMap[val] || 0) + 1;
+        });
+        let chartData = [['จังหวัด', 'จำนวน']];
+        for(let k in provinceMap) chartData.push([k, provinceMap[k]]);
+        google.charts.load('current', {'packages':['corechart']});
+        google.charts.setOnLoadCallback(() => {
+          let dataTable = google.visualization.arrayToDataTable(chartData);
+          let options = {pieHole: 0.45, legend: {position:'right'}, chartArea: {width:'80%',height:'80%'}};
+          let chart = new google.visualization.PieChart(document.getElementById('chart-province'));
+          chart.draw(dataTable, options);
+        });
+      }
+
+      function drawTable(data) {
+        let html = '<table><thead><tr>';
+        headers.forEach(h => html += '<th>' + h + '</th>');
+        html += '</tr></thead><tbody>';
+        for(let i=0; i<Math.min(data.length,15); i++){
+          html += '<tr>';
+          for(let j=0; j<headers.length; j++){
+            html += '<td>' + (data[i][j]||'') + '</td>';
+          }
+          html += '</tr>';
+        }
+        html += '</tbody></table>';
+        document.getElementById('datatable').innerHTML = html;
+      }
+
+      window.onload = loadData;
+    </script>
+  </head>
+  <body>
+    <div class="dashboard-container">
+      <div class="dashboard-header">AIS Customer Dashboard</div>
+      <div class="dashboard-filters">
+    <div>
+      <label for="province" style="font-size:1em; color:#555; margin-right:4px;">Province</label>
+      <select id="province"></select>
+    </div>
+    <div>
+      <label for="age" style="font-size:1em; color:#555; margin-right:4px;">Age</label>
+      <select id="age"></select>
+    </div>
+    <div style="flex:2;">
+      <label for="plan" style="font-size:1em; color:#555; margin-right:4px;">Plan Type</label>
+      <select id="plan" style="width:90%;"></select>
+    </div>
+  </div>
+      <div class="dashboard-cards">
+        <div class="dashboard-card">
+          <div class="dashboard-card-title">Total number of customers</div>
+          <div class="dashboard-card-value" id="card-total">-</div>
+        </div>
+        <div class="dashboard-card">
+          <div class="dashboard-card-title">Satisfaction(%)</div>
+          <div class="dashboard-card-value" id="card-sat">-</div>
+        </div>
+        <div class="dashboard-card">
+          <div class="dashboard-card-title">Problem(%)</div>
+          <div class="dashboard-card-value" id="card-noproblem">-</div>
+        </div>
+        <div class="dashboard-card">
+          <div class="dashboard-card-title">Number of provinces</div>
+          <div class="dashboard-card-value" id="card-province">-</div>
+        </div>
+      </div>
+      <div class="dashboard-content">
+        <div class="dashboard-chart" id="chart-sat" style="height:260px"></div>
+        <div class="dashboard-chart" id="chart-plan" style="height:260px"></div>
+        <div class="dashboard-chart" id="chart-province" style="height:260px"></div>
+      </div>
+      <div class="dashboard-table" style="margin-top:20px">
+        <div style="font-weight: bold; margin-bottom: 10px;">Data table</div>
+        <div id="datatable"></div>
+      </div>
+    </div>
+  </body>
+</html>
